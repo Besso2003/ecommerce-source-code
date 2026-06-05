@@ -1,5 +1,5 @@
-grpcio-health-checking==1.65.0
-grpcio==1.65.0
+grpcio-health-checking==1.60.0
+grpcio==1.63.2
 opentelemetry-distro==0.48b0
 opentelemetry-exporter-otlp-proto-grpc==1.27.0
 python-dotenv==1.0.0
