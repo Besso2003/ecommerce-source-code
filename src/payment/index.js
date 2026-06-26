@@ -31,6 +31,7 @@ async function chargeServiceHandler(call, callback) {
   }
 }
 
+
 async function closeGracefully(signal) {
   server.forceShutdown()
   process.kill(process.pid, signal)
