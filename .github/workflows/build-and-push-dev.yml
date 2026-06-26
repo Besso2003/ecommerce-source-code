@@ -40,7 +40,7 @@ jobs:
             -t $REGISTRY/$ECR_REPO:$IMAGE_TAG \
             -t $REGISTRY/$ECR_REPO:latest \
             -f src/cart/src/Dockerfile \
-            src/cart/src
+            .
           docker push $REGISTRY/$ECR_REPO:$IMAGE_TAG
           docker push $REGISTRY/$ECR_REPO:latest
           echo "IMAGE_TAG=$IMAGE_TAG" >> "$GITHUB_ENV"
