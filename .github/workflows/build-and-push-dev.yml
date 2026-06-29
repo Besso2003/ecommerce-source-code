@@ -5,6 +5,7 @@ on:
     branches: [main]
 
 permissions:
+  id-token: write
   contents: read
 
 jobs:
@@ -34,6 +35,62 @@ jobs:
             recommendation: src/recommendation/**
             shipping: src/shipping/**
 
-      - name: Show detected services
+  build-and-push:
+    needs: detect-changes
+    if: ${{ needs.detect-changes.outputs.services != '[]' }}
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        service: ${{ fromJson(needs.detect-changes.outputs.services) }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve build settings for ${{ matrix.service }}
+        id: resolve
         run: |
-          echo "Changed services: ${{ steps.filter.outputs.changes }}"
+          case "${{ matrix.service }}" in
+            cart)
+              echo "context=." >> "$GITHUB_OUTPUT"
+              echo "dockerfile=src/cart/src/Dockerfile" >> "$GITHUB_OUTPUT"
+              echo "ecr_repo=ecommerce-dev/cart" >> "$GITHUB_OUTPUT"
+              ;;
+            ad)
+              echo "context=src/ad" >> "$GITHUB_OUTPUT"
+              echo "dockerfile=src/ad/Dockerfile" >> "$GITHUB_OUTPUT"
+              echo "ecr_repo=ecommerce-dev/ad-service" >> "$GITHUB_OUTPUT"
+              ;;
+            recommendation)
+              echo "context=src/recommendation" >> "$GITHUB_OUTPUT"
+              echo "dockerfile=src/recommendation/Dockerfile" >> "$GITHUB_OUTPUT"
+              echo "ecr_repo=ecommerce-dev/recommendation-service" >> "$GITHUB_OUTPUT"
+              ;;
+            *)
+              echo "context=src/${{ matrix.service }}" >> "$GITHUB_OUTPUT"
+              echo "dockerfile=src/${{ matrix.service }}/Dockerfile" >> "$GITHUB_OUTPUT"
+              echo "ecr_repo=ecommerce-dev/${{ matrix.service }}" >> "$GITHUB_OUTPUT"
+              ;;
+          esac
+
+      - name: Configure AWS credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::707938860152:role/github-actions-ecr-push
+          aws-region: eu-north-1
+
+      - name: Login to Amazon ECR
+        id: ecr-login
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push image
+        env:
+          REGISTRY: ${{ steps.ecr-login.outputs.registry }}
+          ECR_REPO: ${{ steps.resolve.outputs.ecr_repo }}
+        run: |
+          IMAGE_TAG=$(git rev-parse --short HEAD)
+          docker build \
+            -t $REGISTRY/$ECR_REPO:$IMAGE_TAG \
+            -t $REGISTRY/$ECR_REPO:latest \
+            -f ${{ steps.resolve.outputs.dockerfile }} \
+            ${{ steps.resolve.outputs.context }}
+          docker push $REGISTRY/$ECR_REPO:$IMAGE_TAG
+          docker push $REGISTRY/$ECR_REPO:latest
