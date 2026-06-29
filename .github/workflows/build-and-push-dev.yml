@@ -50,26 +50,25 @@ jobs:
         run: |
           case "${{ matrix.service }}" in
             cart)
-              echo "context=." >> "$GITHUB_OUTPUT"
-              echo "dockerfile=src/cart/src/Dockerfile" >> "$GITHUB_OUTPUT"
-              echo "ecr_repo=ecommerce-dev/cart" >> "$GITHUB_OUTPUT"
+              dockerfile="src/cart/src/Dockerfile"
+              ecr_repo="ecommerce-dev/cart"
               ;;
             ad)
-              echo "context=src/ad" >> "$GITHUB_OUTPUT"
-              echo "dockerfile=src/ad/Dockerfile" >> "$GITHUB_OUTPUT"
-              echo "ecr_repo=ecommerce-dev/ad-service" >> "$GITHUB_OUTPUT"
+              dockerfile="src/ad/Dockerfile"
+              ecr_repo="ecommerce-dev/ad-service"
               ;;
             recommendation)
-              echo "context=src/recommendation" >> "$GITHUB_OUTPUT"
-              echo "dockerfile=src/recommendation/Dockerfile" >> "$GITHUB_OUTPUT"
-              echo "ecr_repo=ecommerce-dev/recommendation-service" >> "$GITHUB_OUTPUT"
+              dockerfile="src/recommendation/Dockerfile"
+              ecr_repo="ecommerce-dev/recommendation-service"
               ;;
             *)
-              echo "context=src/${{ matrix.service }}" >> "$GITHUB_OUTPUT"
-              echo "dockerfile=src/${{ matrix.service }}/Dockerfile" >> "$GITHUB_OUTPUT"
-              echo "ecr_repo=ecommerce-dev/${{ matrix.service }}" >> "$GITHUB_OUTPUT"
+              dockerfile="src/${{ matrix.service }}/Dockerfile"
+              ecr_repo="ecommerce-dev/${{ matrix.service }}"
               ;;
           esac
+          echo "context=." >> "$GITHUB_OUTPUT"
+          echo "dockerfile=$dockerfile" >> "$GITHUB_OUTPUT"
+          echo "ecr_repo=$ecr_repo" >> "$GITHUB_OUTPUT"
 
       - name: Configure AWS credentials via OIDC
         uses: aws-actions/configure-aws-credentials@v4
