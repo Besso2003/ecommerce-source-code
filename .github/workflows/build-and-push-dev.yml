@@ -11,7 +11,7 @@ jobs:
   detect-changes:
     runs-on: ubuntu-latest
     outputs:
-      services: ${{ steps.filter.outputs.changes }}
+      services: "${{ steps.filter.outputs.changes }}"
     steps:
       - uses: actions/checkout@v4
       - uses: dorny/paths-filter@v3
@@ -35,4 +35,5 @@ jobs:
             shipping: src/shipping/**
 
       - name: Show detected services
-        run: echo "Changed services: ${{ steps.filter.outputs.changes }}"
+        run: |
+          echo "Changed services: ${{ steps.filter.outputs.changes }}"
