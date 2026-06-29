@@ -94,3 +94,61 @@ jobs:
             ${{ steps.resolve.outputs.context }}
           docker push $REGISTRY/$ECR_REPO:$IMAGE_TAG
           docker push $REGISTRY/$ECR_REPO:latest
+
+  update-manifests:
+    needs: [detect-changes, build-and-push]
+    if: ${{ needs.detect-changes.outputs.services != '[]' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Generate GitHub App token for infra repo
+        id: app-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.CI_BOT_APP_ID }}
+          private-key: ${{ secrets.CI_BOT_PRIVATE_KEY }}
+          owner: Besso2003
+          repositories: ecommerce-aws-eks-devops
+
+      - name: Clone infra repo
+        run: |
+          git clone https://x-access-token:${{ steps.app-token.outputs.token }}@github.com/Besso2003/ecommerce-aws-eks-devops.git infra
+
+      - name: Update image tags for all changed services
+        run: |
+          IMAGE_TAG=$(git rev-parse --short HEAD)
+          SERVICES='${{ needs.detect-changes.outputs.services }}'
+
+          ecr_name_for() {
+            case "$1" in
+              ad) echo "ad-service" ;;
+              recommendation) echo "recommendation-service" ;;
+              *) echo "$1" ;;
+            esac
+          }
+
+          echo "$SERVICES" | jq -r '.[]' | while read -r svc; do
+            ecr_name=$(ecr_name_for "$svc")
+            patch_file="infra/k8s/overlays/dev/patches/${svc}-patch.yaml"
+            if [ -f "$patch_file" ]; then
+              sed -i "s|ecommerce-dev/${ecr_name}:.*|ecommerce-dev/${ecr_name}:${IMAGE_TAG}|" "$patch_file"
+              echo "Updated $patch_file -> $IMAGE_TAG"
+            else
+              echo "WARNING: $patch_file not found, skipping"
+            fi
+          done
+
+      - name: Commit and push
+        run: |
+          cd infra
+          git config user.name "ecommerce-ci-bot[bot]"
+          git config user.email "ecommerce-ci-bot[bot]@users.noreply.github.com"
+          git add k8s/overlays/dev/patches/
+          if git diff --cached --quiet; then
+            echo "No changes to commit"
+          else
+            SERVICES='${{ needs.detect-changes.outputs.services }}'
+            git commit -m "ci: update images for ${SERVICES} [skip ci]"
+            git push
+          fi
