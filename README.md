@@ -1,51 +1,5 @@
 **Note:** This project is a fork of `opentelemetry-demo`. Thanks to the team and contributors for opensourcing this wonderful demo project. Definitely one of the best on internet.
 
-<!-- markdownlint-disable-next-line -->
-# <img src="https://opentelemetry.io/img/logos/opentelemetry-logo-nav.png" alt="OTel logo" width="45"> OpenTelemetry Demo
-
-[![Slack](https://img.shields.io/badge/slack-@cncf/otel/demo-brightgreen.svg?logo=slack)](https://cloud-native.slack.com/archives/C03B4CWV4DA)
-[![Version](https://img.shields.io/github/v/release/open-telemetry/opentelemetry-demo?color=blueviolet)](https://github.com/open-telemetry/opentelemetry-demo/releases)
-[![Commits](https://img.shields.io/github/commits-since/open-telemetry/opentelemetry-demo/latest?color=ff69b4&include_prereleases)](https://github.com/open-telemetry/opentelemetry-demo/graphs/commit-activity)
-[![Downloads](https://img.shields.io/docker/pulls/otel/demo)](https://hub.docker.com/r/otel/demo)
-[![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg?color=red)](https://github.com/open-telemetry/opentelemetry-demo/blob/main/LICENSE)
-[![Integration Tests](https://github.com/open-telemetry/opentelemetry-demo/actions/workflows/run-integration-tests.yml/badge.svg)](https://github.com/open-telemetry/opentelemetry-demo/actions/workflows/run-integration-tests.yml)
-[![Artifact Hub](https://img.shields.io/endpoint?url=https://artifacthub.io/badge/repository/opentelemetry-demo)](https://artifacthub.io/packages/helm/opentelemetry-helm/opentelemetry-demo)
-[![OpenSSF Best Practices](https://www.bestpractices.dev/projects/9247/badge)](https://www.bestpractices.dev/en/projects/9247)
-
-## Welcome to the OpenTelemetry Astronomy Shop Demo
-
-This repository contains the OpenTelemetry Astronomy Shop, a microservice-based
-distributed system intended to illustrate the implementation of OpenTelemetry in
-a near real-world environment.
-
-Our goals are threefold:
-
-- Provide a realistic example of a distributed system that can be used to
-  demonstrate OpenTelemetry instrumentation and observability.
-- Build a base for vendors, tooling authors, and others to extend and
-  demonstrate their OpenTelemetry integrations.
-- Create a living example for OpenTelemetry contributors to use for testing new
-  versions of the API, SDK, and other components or enhancements.
-
-We've already made [huge
-progress](https://github.com/open-telemetry/opentelemetry-demo/blob/main/CHANGELOG.md),
-and development is ongoing. We hope to represent the full feature set of
-OpenTelemetry across its languages in the future.
-
-If you'd like to help (**which we would love**), check out our [contributing
-guidance](./CONTRIBUTING.md).
-
-If you'd like to extend this demo or maintain a fork of it, read our
-[fork guidance](https://opentelemetry.io/docs/demo/forking/).
-
-## Quick start
-
-You can be up and running with the demo in a few minutes. Check out the docs for
-your preferred deployment method:
-
-- [Docker](https://opentelemetry.io/docs/demo/docker_deployment/)
-- [Kubernetes](https://opentelemetry.io/docs/demo/kubernetes_deployment/)
-
 ## Documentation
 
 For detailed documentation, see [Demo Documentation][docs]. If you're curious
@@ -71,71 +25,97 @@ keeping it up to date for you.
 | [Datadog]                 | [Logz.io]      | [Uptrace]                        |
 | [Dynatrace]               | [New Relic]    |                                  |
 
-## Contributing
+---
 
-To get involved with the project see our [CONTRIBUTING](CONTRIBUTING.md)
-documentation. Our [SIG Calls](CONTRIBUTING.md#join-a-sig-call) are every other
-Monday at 8:30 AM PST and anyone is welcome.
+# CI/CD Pipeline
 
-## Project leadership
+This repo contains the application source code for the ecommerce demo's microservices. Pushing changes to `main` automatically builds and deploys affected services to the `dev` environment, defined in the separate [`ecommerce-aws-eks-devops`](https://github.com/Besso2003/ecommerce-aws-eks-devops) repo.
 
-[Maintainers](https://github.com/open-telemetry/community/blob/main/guides/contributor/membership.md#maintainer)
-([@open-telemetry/demo-maintainers](https://github.com/orgs/open-telemetry/teams/demo-maintainers)):
+## What happens on every push to `main`
 
-- [Juliano Costa](https://github.com/julianocosta89), Datadog
-- [Mikko Viitanen](https://github.com/mviitane), Dynatrace
-- [Pierre Tessier](https://github.com/puckpuck), Honeycomb
+```
+1. detect-changes   — figures out which of the 15 tracked services
+                       actually had files change in this push
+2. build-and-push    — for each changed service, in parallel:
+                          builds its Docker image, tags it with the
+                          short git SHA, pushes both that tag and
+                          :latest to its ECR repository in ecommerce-dev
+3. update-manifests   — clones ecommerce-aws-eks-devops, updates the
+                          image tag for every service that was just
+                          built, and pushes ONE combined commit back
+                          to that repo
+```
 
-[Approvers](https://github.com/open-telemetry/community/blob/main/guides/contributor/membership.md#approver)
-([@open-telemetry/demo-approvers](https://github.com/orgs/open-telemetry/teams/demo-approvers)):
+ArgoCD (running in the separate `platform` hub cluster) watches `ecommerce-aws-eks-devops` and picks up that commit automatically — no further action is needed for a change to reach the `dev` cluster.
 
-- [Cedric Ziel](https://github.com/cedricziel) Grafana Labs
-- [Penghan Wang](https://github.com/wph95), AppDynamics
-- [Reiley Yang](https://github.com/reyang), Microsoft
-- [Roger Coll](https://github.com/rogercoll), Elastic
-- [Ziqi Zhao](https://github.com/fatsheep9146), Alibaba
+Only `dev` is touched by this pipeline. Promoting a tested image to `prod` is a separate, deliberate step, not automated by this workflow.
 
-Emeritus:
+## Why services are built from the repo root, not their own folder
 
-- [Austin Parker](https://github.com/austinlparker)
-- [Carter Socha](https://github.com/cartersocha)
-- [Michael Maxwell](https://github.com/mic-max)
-- [Morgan McLean](https://github.com/mtwo)
+Every service's `Dockerfile` (including ones that look self-contained at first glance) references shared files outside its own folder — most commonly `pb/demo.proto`, the protobuf contract shared across services. Because of this, every build in this pipeline uses the **repo root** as its Docker build context, even though the `Dockerfile` itself lives inside `src/<service>/`. The `-f` flag points at the Dockerfile's actual location; the context (what files Docker can see) is always `.`.
 
-### Thanks to all the people who have contributed
+## Per-service quirks the pipeline accounts for
 
-[![contributors](https://contributors-img.web.app/image?repo=open-telemetry/opentelemetry-demo)](https://github.com/open-telemetry/opentelemetry-demo/graphs/contributors)
+```
+cart            — Dockerfile lives at src/cart/src/Dockerfile,
+                   not src/cart/Dockerfile (a .NET project
+                   convention from the upstream demo project)
 
-[docs]: https://opentelemetry.io/docs/demo/
+ad              — folder is named "ad", but its ECR repository
+                   and Kubernetes deployment are named "ad-service"
 
-<!-- Links for Demos featuring the Astronomy Shop section -->
+recommendation  — folder is named "recommendation", but its ECR
+                   repository and Kubernetes deployment are named
+                   "recommendation-service"
+```
 
-[AlibabaCloud LogService]: https://github.com/aliyun-sls/opentelemetry-demo
-[AppDynamics]: https://www.appdynamics.com/blog/cloud/how-to-observe-opentelemetry-demo-app-in-appdynamics-cloud/
-[Aspecto]: https://github.com/aspecto-io/opentelemetry-demo
-[Axiom]: https://play.axiom.co/axiom-play-qf1k/dashboards/otel.traces.otel-demo-traces
-[Axoflow]: https://axoflow.com/opentelemetry-support-in-more-detail-in-axosyslog-and-syslog-ng/
-[Azure Data Explorer]: https://github.com/Azure/Azure-kusto-opentelemetry-demo
-[Coralogix]: https://coralogix.com/blog/configure-otel-demo-send-telemetry-data-coralogix
-[Dash0]: https://github.com/dash0hq/opentelemetry-demo
-[Datadog]: https://docs.datadoghq.com/opentelemetry/guide/otel_demo_to_datadog
-[Dynatrace]: https://www.dynatrace.com/news/blog/opentelemetry-demo-application-with-dynatrace/
-[Elastic]: https://github.com/elastic/opentelemetry-demo
-[Google Cloud]: https://github.com/GoogleCloudPlatform/opentelemetry-demo
-[Grafana Labs]: https://github.com/grafana/opentelemetry-demo
-[Guance]: https://github.com/GuanceCloud/opentelemetry-demo
-[Honeycomb.io]: https://github.com/honeycombio/opentelemetry-demo
-[Instana]: https://github.com/instana/opentelemetry-demo
-[Kloudfuse]: https://github.com/kloudfuse/opentelemetry-demo
-[Liatrio]: https://github.com/liatrio/opentelemetry-demo
-[Logz.io]: https://logz.io/learn/how-to-run-opentelemetry-demo-with-logz-io/
-[New Relic]: https://github.com/newrelic/opentelemetry-demo
-[OpenSearch]: https://github.com/opensearch-project/opentelemetry-demo
-[Sentry]: https://github.com/getsentry/opentelemetry-demo
-[ServiceNow Cloud Observability]: https://docs.lightstep.com/otel/quick-start-operator#send-data-from-the-opentelemetry-demo
-[Splunk]: https://github.com/signalfx/opentelemetry-demo
-[Sumo Logic]: https://www.sumologic.com/blog/common-opentelemetry-demo-application/
-[TelemetryHub]: https://github.com/TelemetryHub/opentelemetry-demo/tree/telemetryhub-backend
-[Teletrace]: https://github.com/teletrace/opentelemetry-demo
-[Tracetest]: https://github.com/kubeshop/opentelemetry-demo
-[Uptrace]: https://github.com/uptrace/uptrace/tree/master/example/opentelemetry-demo
+These three are handled explicitly in the workflow's case statements. Every other service's folder name, ECR repository name, and Dockerfile path all match the simple pattern `src/<service>/Dockerfile` → `ecommerce-dev/<service>`.
+
+## Services NOT covered by this pipeline
+
+```
+flagd, flagd-ui     — third-party images (open-feature project),
+                       not built from this repo's code
+
+kafka, postgres,
+valkey               — third-party / infrastructure images, not
+                       application code
+
+prometheus, grafana,
+jaeger, opensearch,
+otel-collector         — observability stack, not part of the
+                          23 services currently deployed via
+                          k8s/overlays in the infra repo
+
+react-native-app        — has no corresponding Kubernetes
+                            deployment currently
+
+product-reviews, llm    — referenced in the infra repo's k8s
+                            manifests at one point, but have no
+                            corresponding folder in this repo's
+                            src/ directory. product-reviews was
+                            removed from the dev overlay (see
+                            "Known issues" below); llm has not
+                            been investigated yet.
+```
+
+## How authentication works (no stored AWS keys)
+
+The workflow authenticates to AWS using **OIDC federation**: GitHub issues a short-lived, cryptographically signed token identifying the exact repo and branch the workflow is running from. AWS validates that token against an IAM role whose trust policy only accepts tokens from `repo:Besso2003/ecommerce-source-code:ref:refs/heads/main`. No AWS access key or secret is stored anywhere in this repo or its GitHub secrets.
+
+The IAM role itself is provisioned in the infra repo's Terraform (`Terraform/bootstrap/`), and is scoped narrowly — it can push images to `ecommerce-dev/*` ECR repositories only. It cannot touch `ecommerce-prod/*`, and has no permissions outside ECR at all.
+
+## How the cross-repo commit works
+
+Pushing a commit into `ecommerce-aws-eks-devops` from a workflow running in this repo requires write access to that other repo. This is handled by a dedicated **GitHub App** (`ecommerce-ci-bot`), installed on both repos with `Contents: Read and write` permission only. The workflow exchanges the App's credentials for a short-lived (~1 hour) installation token at runtime, used only for that one commit. The App's private key is stored as a GitHub Actions secret (`CI_BOT_PRIVATE_KEY`) and is never written to disk outside the workflow's own memory.
+
+## Known issues
+
+- **`product-reviews`** was deployed in the dev overlay but its server code expected a `ProductReviewService` gRPC contract that was never added to the shared `pb/demo.proto` file. This caused a permanent `CrashLoopBackOff`. It has been removed from `k8s/overlays/dev/kustomization.yaml` until the protobuf definition is written and the service is properly finished.
+- **`llm`** has no corresponding folder in this repo's `src/` directory despite being referenced in the infra repo's deployments. Not yet investigated.
+
+## Adding a new service to the pipeline
+
+1. Add the service's folder name to the `filters:` list in the `detect-changes` job of `.github/workflows/build-and-push-dev.yml`
+2. If its Dockerfile path or ECR name doesn't follow the standard `src/<service>/Dockerfile` → `ecommerce-dev/<service>` pattern, add a case for it in both the `build-and-push` job's case statement and the `update-manifests` job's `ecr_name_for()` function
+3. Make sure a matching `k8s/overlays/dev/patches/<service>-patch.yaml` exists in the infra repo — the pipeline will insert a new `image:` line automatically the first time it builds that service, but only if the patch file itself already exists
