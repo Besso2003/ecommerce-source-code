@@ -131,11 +131,19 @@ jobs:
           echo "$SERVICES" | jq -r '.[]' | while read -r svc; do
             ecr_name=$(ecr_name_for "$svc")
             patch_file="infra/k8s/overlays/dev/patches/${svc}-patch.yaml"
-            if [ -f "$patch_file" ]; then
-              sed -i "s|ecommerce-dev/${ecr_name}:.*|ecommerce-dev/${ecr_name}:${IMAGE_TAG}|" "$patch_file"
-              echo "Updated $patch_file -> $IMAGE_TAG"
-            else
+            new_image_line="          image: 707938860152.dkr.ecr.eu-north-1.amazonaws.com/ecommerce-dev/${ecr_name}:${IMAGE_TAG}"
+
+            if [ ! -f "$patch_file" ]; then
               echo "WARNING: $patch_file not found, skipping"
+              continue
+            fi
+
+            if grep -q "image:.*ecommerce-dev/${ecr_name}:" "$patch_file"; then
+              sed -i "s|ecommerce-dev/${ecr_name}:.*|ecommerce-dev/${ecr_name}:${IMAGE_TAG}|" "$patch_file"
+              echo "Updated existing image line in $patch_file -> $IMAGE_TAG"
+            else
+              sed -i "/- name: ${svc}$/a\\${new_image_line}" "$patch_file"
+              echo "Inserted new image line in $patch_file -> $IMAGE_TAG"
             fi
           done
 
