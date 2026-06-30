@@ -1,0 +1,98 @@
+name: Promote to Prod
+
+on:
+  workflow_dispatch:
+    inputs:
+      service:
+        description: "Service to promote (e.g. cart, payment, checkout)"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  promote:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Generate GitHub App token for infra repo
+        id: app-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.CI_BOT_APP_ID }}
+          private-key: ${{ secrets.CI_BOT_PRIVATE_KEY }}
+          owner: Besso2003
+          repositories: ecommerce-aws-eks-devops
+
+      - name: Clone infra repo
+        run: |
+          git clone https://x-access-token:${{ steps.app-token.outputs.token }}@github.com/Besso2003/ecommerce-aws-eks-devops.git infra
+
+      - name: Resolve ECR name for ${{ inputs.service }}
+        id: resolve
+        run: |
+          case "${{ inputs.service }}" in
+            ad) echo "ecr_name=ad-service" >> "$GITHUB_OUTPUT" ;;
+            recommendation) echo "ecr_name=recommendation-service" >> "$GITHUB_OUTPUT" ;;
+            *) echo "ecr_name=${{ inputs.service }}" >> "$GITHUB_OUTPUT" ;;
+          esac
+
+      - name: Read current dev tag
+        id: dev-tag
+        run: |
+          DEV_PATCH="infra/k8s/overlays/dev/patches/${{ inputs.service }}-patch.yaml"
+          if [ ! -f "$DEV_PATCH" ]; then
+            echo "::error::No dev patch file found for '${{ inputs.service }}' at $DEV_PATCH"
+            exit 1
+          fi
+
+          TAG=$(grep "image:" "$DEV_PATCH" | sed -E 's/.*:([a-zA-Z0-9]+)$/\1/')
+
+          if [ -z "$TAG" ]; then
+            echo "::error::No image tag found in $DEV_PATCH - has this service ever been built by CI?"
+            exit 1
+          fi
+
+          echo "Found dev tag: $TAG"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Update prod patch file
+        id: update
+        run: |
+          ECR_NAME="${{ steps.resolve.outputs.ecr_name }}"
+          TAG="${{ steps.dev-tag.outputs.tag }}"
+          PROD_PATCH="infra/k8s/overlays/prod/patches/${{ inputs.service }}-patch.yaml"
+
+          if [ ! -f "$PROD_PATCH" ]; then
+            echo "::error::No prod patch file found for '${{ inputs.service }}' at $PROD_PATCH"
+            exit 1
+          fi
+
+          NEW_IMAGE_LINE="          image: 707938860152.dkr.ecr.eu-north-1.amazonaws.com/ecommerce-prod/${ECR_NAME}:${TAG}"
+
+          if grep -q "image:.*ecommerce-prod/${ECR_NAME}:" "$PROD_PATCH"; then
+            sed -i "s|ecommerce-prod/${ECR_NAME}:.*|ecommerce-prod/${ECR_NAME}:${TAG}|" "$PROD_PATCH"
+          else
+            sed -i "/- name: ${{ inputs.service }}$/a\\${NEW_IMAGE_LINE}" "$PROD_PATCH"
+          fi
+
+          echo "branch=promote-${{ inputs.service }}-${TAG}" >> "$GITHUB_OUTPUT"
+
+      - name: Commit and open PR
+        run: |
+          cd infra
+          BRANCH="${{ steps.update.outputs.branch }}"
+          TAG="${{ steps.dev-tag.outputs.tag }}"
+
+          git config user.name "ecommerce-ci-bot[bot]"
+          git config user.email "ecommerce-ci-bot[bot]@users.noreply.github.com"
+          git checkout -b "$BRANCH"
+          git add "k8s/overlays/prod/patches/${{ inputs.service }}-patch.yaml"
+          git commit -m "promote: ${{ inputs.service }} to prod at ${TAG}"
+          git push -u origin "$BRANCH"
+
+          curl -X POST \
+            -H "Authorization: token ${{ steps.app-token.outputs.token }}" \
+            -H "Accept: application/vnd.github+json" \
+            https://api.github.com/repos/Besso2003/ecommerce-aws-eks-devops/pulls \
+            -d "{\"title\":\"Promote ${{ inputs.service }} to prod (${TAG})\",\"head\":\"$BRANCH\",\"base\":\"main\",\"body\":\"Promotes \`${{ inputs.service }}\` to prod, using the image already running in dev (tag \`${TAG}\`). No rebuild - this is the exact same artifact already tested in dev.\\n\\nTriggered manually via the Promote to Prod workflow.\"}"
