@@ -9,6 +9,7 @@ on:
         type: string
 
 permissions:
+  id-token: write
   contents: read
 
 jobs:
@@ -56,6 +57,31 @@ jobs:
           echo "Found dev tag: $TAG"
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
 
+      - name: Configure AWS credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::707938860152:role/github-actions-ecr-push
+          aws-region: eu-north-1
+
+      - name: Login to Amazon ECR
+        id: ecr-login
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Copy image from dev ECR to prod ECR
+        env:
+          REGISTRY: ${{ steps.ecr-login.outputs.registry }}
+          ECR_NAME: ${{ steps.resolve.outputs.ecr_name }}
+          TAG: ${{ steps.dev-tag.outputs.tag }}
+        run: |
+          echo "Pulling $REGISTRY/ecommerce-dev/$ECR_NAME:$TAG..."
+          docker pull "$REGISTRY/ecommerce-dev/$ECR_NAME:$TAG"
+
+          echo "Tagging for prod..."
+          docker tag "$REGISTRY/ecommerce-dev/$ECR_NAME:$TAG" "$REGISTRY/ecommerce-prod/$ECR_NAME:$TAG"
+
+          echo "Pushing to prod ECR..."
+          docker push "$REGISTRY/ecommerce-prod/$ECR_NAME:$TAG"
+
       - name: Update prod patch file
         id: update
         run: |
@@ -95,4 +121,4 @@ jobs:
             -H "Authorization: token ${{ steps.app-token.outputs.token }}" \
             -H "Accept: application/vnd.github+json" \
             https://api.github.com/repos/Besso2003/ecommerce-aws-eks-devops/pulls \
-            -d "{\"title\":\"Promote ${{ inputs.service }} to prod (${TAG})\",\"head\":\"$BRANCH\",\"base\":\"main\",\"body\":\"Promotes \`${{ inputs.service }}\` to prod, using the image already running in dev (tag \`${TAG}\`). No rebuild - this is the exact same artifact already tested in dev.\\n\\nTriggered manually via the Promote to Prod workflow.\"}"
+            -d "{\"title\":\"Promote ${{ inputs.service }} to prod (${TAG})\",\"head\":\"$BRANCH\",\"base\":\"main\",\"body\":\"Promotes \`${{ inputs.service }}\` to prod, using the image already running in dev (tag \`${TAG}\`), copied directly from \`ecommerce-dev/${{ inputs.service }}\` to \`ecommerce-prod/${{ inputs.service }}\` in ECR - no rebuild.\\n\\nTriggered manually via the Promote to Prod workflow.\"}"
