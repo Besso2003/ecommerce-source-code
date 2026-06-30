@@ -8,7 +8,7 @@ const opentelemetry = require('@opentelemetry/api')
 const charge = require('./charge')
 const logger = require('./logger')
 
-// test1
+// test
 async function chargeServiceHandler(call, callback) {
   const span = opentelemetry.trace.getActiveSpan();
 
