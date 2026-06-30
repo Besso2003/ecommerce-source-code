@@ -50,6 +50,12 @@ Triggers automatically on every push to `main`.
 
 ArgoCD (running in the separate `platform` hub cluster) watches `ecommerce-aws-eks-devops` and picks up that commit automatically — no further action is needed for a change to reach the `dev` cluster.
 
+![ecommerce-dev ECR repository with a pushed image](docs/images/aws-console-dev-ecr.png)
+
+Once ArgoCD syncs the resulting commit, the new image is running in `dev`:
+
+![ArgoCD showing payment's dev image after a build](docs/images/argocd-payment-dev-image.png)
+
 ## Workflow 2 — Promote to Prod
 
 Triggers manually, via the **Run workflow** button on the Actions tab, with one required input: the service name to promote (e.g. `cart`).
